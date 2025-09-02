@@ -1,0 +1,148 @@
+---
+title: "Multiple Linear Regression - Iris"
+format: html
+editor: visual
+---
+
+## Ajustement d'un modèle de régression linéaire simple
+
+Exemple sur le jeu de données des Iris disponible sous R (d'après le poly de P. Ailliot, UBO)
+
+Sepal.Length est la variable à expliquer
+
+Sepal.Width est la variable explicative
+
+```{r}
+library(ggplot2) # pour les graphiques
+library(dplyr)
+```
+
+```{r}
+fit=lm(Sepal.Length~Petal.Length,data=iris)
+
+confint(fit) #intervalles de confiance pour beta
+```
+
+**Résumé de l'ajustement**
+
+Il faut savoir interpréter les sorties de la fonction summary.lm
+
+La partie 'Coefficients' donne en particulier les p-values des tests d'hypothèses H_0: $\beta_j$=0 \
+La ligne 'Residual standard error' donne une estimation de la variance des résidus \$\\sigma\^2\$\$. On peut en déduire des tests ou des intervalles de confiance pour \$\\sigma\^2\$\$ \
+Le 'Multiple R-squared' mesure la qualité globale du modèle
+
+```{r}
+#| echo: false
+summary(fit)
+```
+
+```{r}
+#| echo: false
+ggplot(iris, aes(y=Sepal.Length, x=Petal.Length))+
+geom_point()+
+geom_smooth(method = "lm")+
+theme_classic()
+```
+
+La zone grisée est un intervalle de confiance à 95% pour la droite de régression.
+
+```{r}
+newx=data.frame(Petal.Length=seq(1,8,by=.1))
+#création d'un data.frame qui contient les nouvelles valeurs de la variable explicative
+#il faut que le nom des variables coincide avec le nom du jeu de données d'origine
+pred=predict(fit,newx,interval = "prediction") #prédiction
+pred=as.data.frame(cbind(newx,pred)) #stockage dans un data.frame
+ggplot(iris, aes(y=Sepal.Length, x=Petal.Length))+
+geom_point()+
+geom_smooth(method = "lm")+
+geom_line(data=pred,aes(y=lwr, x=Petal.Length), color = "red", linetype = "dashed")+
+geom_line(data=pred,aes(y=upr, x=Petal.Length), color = "red", linetype = "dashed")+
+theme_classic()
+
+```
+
+Les droites rouges représentent l'intervalle de prédiction.
+
+**Validation du modèle**
+
+Il faut savoir interpréter les trois graphiques proposés par R.\
+Le premier graphique permet de vérifier si la relation est linéaire -\>points "répartis dans une bande horizontale"? \
+Le deuxième graphique permet de vérifier si le résidu est gaussien -\>"points proches de la droite de Henry"? \
+Le dernier graphique permet de vérifier si le résidu est indépendant de x -\>"points répartis dans une bande horizontale"?
+
+```{r}
+par(mfrow=c(1,3))
+plot(fit,which=1:3)
+```
+
+**Ajustement d'un modèle de régression multiple**
+
+On considère la table iris à laquelle on retire (pour le moment la variable espèce)
+
+```{r}
+iris1 = iris %>% select(!(Species))
+fit2=lm(Sepal.Length~.,data=iris1)
+summary(fit2)
+```
+
+Toutes les variables explicatives ont un effet significatif le $Rˆ2$ a augmenté par rapport au modèle de régression linéaire simple
+
+**Analyse de la variance de la régression**
+
+La p_value du test de l'hypothèse
+
+H0 : $\beta_1=\beta_2=\beta_3=0$
+
+est très faible. H_0 est refusée.
+
+On en déduit que le modèle complet est meilleur que le modèle restreint
+
+```{r}
+fit=lm(Sepal.Length~.,data=iris1) #ajustement modèle complet
+fit0=lm(Sepal.Length~Petal.Length,data=iris1) #ajustement modèle réduit
+anova(fit0,fit)
+```
+
+```{r}
+fit2=lm(Sepal.Length~1,data=iris1) #ajustement modèle avec seulement intercept
+anova(fit2,fit) #on retrouve la même p-value que avec summary
+```
+
+**Introduction d'une variable catégorielle**
+
+Revenons à la table de données complète, incluant la variable catégorielle Species. Par défaut, R recode les variables en utilisant l’ordre alphabétique.
+
+```{r}
+library(ggplot2) #représentation graphique
+p=ggplot(iris,aes(x=Species,y=Sepal.Length,colour=Species ,fill=Species))
+p + geom_boxplot(alpha=.5)+geom_jitter(width=0.25)
+
+```
+
+Un premier modèle. La classe setosa est utilisée comme classe de référence.
+
+```{r}
+mod1 = lm(Sepal.Length ~ Species, data = iris)
+summary(mod1)
+```
+
+Interprétation des paramètres :
+
+Intercept décrit la moyenne dans le groupe de référence = setosa. Speciesversicolor correspond à un effet différentiel entre groupe versicolor et groupe de référence. La différence entre la moyenne des deux groupes est significative. Speciesvirginica correspond à un effet différentiel entre groupe virginica et groupe de référence. La p-value du test d'analyse de la variance est très faible.
+
+On peut aussi présenter le test de la façon suivante pour tester l'effet de la variable Species. La première ligne donne la SC inter-classe. La deuxième ligne donne la SC intra-classe.
+
+```{r}
+anova(lm(Sepal.Length ~ Species, data = iris))
+```
+
+Le modèle incluant toutes les variables.
+
+```{r}
+mod = lm(Sepal.Length ~ ., data = iris)
+summary(mod)
+```
+
+```{r}
+anova(mod)
+```

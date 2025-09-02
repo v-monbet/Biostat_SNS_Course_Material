@@ -1,0 +1,94 @@
+---
+title: "ANOVA"
+author: "V. Monbet"
+date: "2025-08-28"
+
+
+output:
+  html_document:
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+knitr::opts_chunk$set(
+  fig.width = 5, 
+  fig.height = 5 * 0.618,  # Golden rectangles!
+  fig.align = "center", 
+  out.width = "60%"
+)
+```
+
+# Student test, examples
+
+This report shows how to perform Student t-tests in R. 
+
+R commands are reported, to hide them turn echo to FALSE in knitr::opts_chunk$set. 
+
+```{r libraries}
+library(ggplot2)
+#install.packages("cond")
+library(cond)
+```
+## Paired samples
+
+ Hollander et Wolfe (1973), 29f.
+ Hamilton depression scale factor measurements in 9 patients with  mixed anxiety and depression, taken at the first (x) and second  (y) visit after initiation of a therapy (administration of a tranquilizer).
+ 
+ The hull hypothesis is that the therapy has no effect such that $\mu_x = \mu_y$, the alternative is that the dépression symptoms décrease such that $\mu_x > \mu_y$.
+ 
+ Samples are paired : the same individuals takes the 2 visits. 
+
+The test is performed at risk 0.05.
+```{r data }
+
+insurance <- read.csv("~/Library/CloudStorage/OneDrive-UniversitédeRennes1/ENSEIGNEMENT/BIOSTAT_SNS/DONNEES/insurance.csv")
+head(insurance)
+
+insurance$sex = as.factor(insurance$sex)
+
+```
+## Descriptive statistics
+```{r description  }
+library(ggpubr)
+ggboxplot(insurance, x = "smoker", y = "charges", add = "jitter")
+
+ggboxplot(insurance, x = "sex", y = "charges", add = "jitter")
+
+
+
+#ggplot(data=insurance,aes(y=charges,x=smoker))+geom_boxplot()
+
+#ggplot(data=insurance,aes(y=charges,x=sex))+geom_boxplot()
+
+#ggplot(data=insurance,aes(y=charges,x=as.factor(children)))+geom_boxplot()
+
+
+```
+
+
+## ANOVA
+```{r ANOVA  }
+res = aov(charges~sex+smoker+region,data=insurance)
+summary(res)
+
+```
+```{r  qqplots}
+p <- ggplot(insurance, aes(sample = charges), colour = factor(smoker)) +
+  stat_qq() +
+  stat_qq_line()
+p
+```
+
+
+
+
+### Normality test by group
+```{r osmo shapiro tests}
+sh1 = shapiro.test(scale(insurance$charges[insurance$smoker=="yes"]))
+print(paste("Shapiro test pvalue, group 1 :",round(sh1$p.value,2)))
+
+```
+
+Pvalues are both smaller than  0.05, the null hypothesis "distribution is gaussian" can be rejected. We should not use ANOVA but one of its non parametric counterparts. 
