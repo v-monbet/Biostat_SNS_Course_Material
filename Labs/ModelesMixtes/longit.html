@@ -1,0 +1,115 @@
+<!DOCTYPE doctype PUBLIC "-//w3c//dtd html 4.0 transitional//en">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>longit</title>
+<link rel="stylesheet" type="text/css" href="TPstyle.css" />
+</head>
+<body>
+
+<h1>Données longitudinales et
+modèles mixtes
+</h1>
+
+<h2>Enfants</h2>
+<h3>Description</h3>
+
+Il s'agit de proposer un modèle de croissance pour des enfants
+de 12 à 14 ans. L'échantillon contient a 26 enfants. <br>
+On mesure la taille de chaque enfant tous les trois mois. <br><br>
+
+Données  <a href="oxboys.txt">ici</a>.
+
+<h3>Analyse</h3>
+Les auteurs postulent le modèle polynomial mixte où
+la partie à effets fixes est un  polynome d'ordre 4 commun
+aux enfants et la partie aléatoire est une perturbation représentée 
+par un polynome d'ordre 2 à coefficients 
+aléatoires.<br>
+
+
+La commande pour de modèle proposé est<br><br>
+
+<code> lmp = lme(taille~1+age+I(age^2)+I(age^3)+I(age^4),random=~1+age+I(age^2)|sujet)</code><br><br>
+
+(charger auparavant la bibliothèque <code>nlme</code>). S'intéresser aux coefficients estimés (<code>summary</code>) et aux intervalles de confiance (<code>intervals</code>).<br><br>
+
+Pour le tracé des courbes on pourra faire<br><br>
+
+<code> plot(age,taille,type='n')<br>
+for(i in 1:max(sujet)){lines(age[sujet==i],taille[sujet==i])}</code><br><br>
+
+On essaiera de conforter ou d'infirmer le choix du modèle proposé.<br><br>
+
+
+<h4>Source :</h4>&nbsp;
+J. C.Pinheiro,  and D. M.Bates, "Mixed-Effects Models in S and S-PLUS", Springer, 2000.
+<br><br>
+Pour la programmation des modèles mixtes sous R voir par exemple 
+le <a href="CoursNlme.pdf">document d'introduction</a> de D.Concordet.<br>
+
+<br><hr>
+<h2>Nested factors: Pastes</h2>
+
+On considère les données Pastes: <code>library(lme4);data(Pastes)</code>.<br>
+Observer les données. On oubliera <code>sample</code> qui est redondant.<br>
+On pourra considérer que batch est un camion et cask un baril (extrait du camion).
+<br>
+<br>
+Très important: Pourquoi le modèle <code>modpl=lm(strength~cask+batch,data=Pastes)</code>
+n'a-t-il pas de sens?<br><br>
+Comparer les modèles <br>
+
+<code>   modstar=lm(strength~batch*cask,data=Pastes)</code>?<br>
+<code>   moddiv=lm(strength~batch:cask,data=Pastes)</code>?<br>
+<code>   modslash=lm(strength~batch/cask,data=Pastes)</code>?<br><br>
+
+Comparer <code>modslash</code>  au modèle <code>modms=lmer(strength~1+(1|batch/cask),data=Pastes).</code><br><br>
+Comparer <code>modms</code>  au modèle <code>modmp=lmer(strength~1+(1|batch)+(1|batch:cask),data=Pastes)</code>?<br><br>
+Comparer <code>modms</code> à <code>mod1=lme(strength~1,random=list((~1|batch),(~1|cask)),data=Pastes).</code><br>
+Noter que lme force l'emboîtement des facteurs.<br>
+<br><br>
+
+
+<br><hr>
+<h2>Chlore</h2>
+
+Il s'agit de la variation saisonnière de niveau de chlorure 
+dans des marais proches ou éloignés d'une route du Minesota.<br><br>
+Données  <a href="chloride.txt">ici</a>.
+
+<h3>Analyse</h3>
+Expliquer la variable Chloride (taux de chlorure) en fonction de Type et de Month.
+Considérer le facteur Marsh (numéro de marais) comme aléatoire.
+<br><br>
+On pourra comparer les trois modèles (effets fixes sans Marsh, effets fixes avec Marsh, et effets
+aléatoires) avec le critère BIC. Considérer également les intervalles de confiance.
+<br><br>
+
+On essayera également: <code>library(lme4)</code>;
+<code> modr = lmer(Cl~Type+(1|Marsh)+(1|Month),data=chl)</code><br>
+Donner l'équation correspondant à cette commande.
+
+<h4>Source :</h4>
+Weisberg, "Applied Linnear Regression", 3rd edition. New York: Wiley, Section 6.5.
+<br>
+
+
+<br><hr>
+<h2>Fatigue</h2>
+
+On considère les données <code>Fatigue</code> de la bibliothèque <code>nlme</code>.
+Il s'agit d'expliquer  <code>relLength</code> (longueur de craquelure) 
+en fonction de  <code>cycles</code> (nombre de sollicitations, en million).  
+La variable <code>Path</code> est un numéro de test. <br><br>
+
+On oublie pour l'instant la variable Path. Proposer un changement logarithmique
+translaté qui semble adapté pour obtenir un modèle linéaire.<br>
+
+Proposer un modèle mixte pour prendre en compte Path bien que son effet spécifique
+ne présente pas d'intérêt dans l'étude.
+<br><br>
+
+
+</body>
+</html>
