@@ -1,0 +1,711 @@
+---
+title: "Modèles statistiques pour les données cliniques et de santé — ANOVA"
+subtitle: "Cours (p. 66–80) et exercices guidés avec R"
+author: "d'après V. Monbet, Université de Rennes"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    df_print: paged
+lang: fr
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.align = "center", fig.width = 6.5, fig.height = 4)
+set.seed(2025)
+```
+
+# Comment utiliser ce document
+
+- Les blocs de **cours** reprennent les éléments des diapositives (modèles, statistiques de test, hypothèses) et les illustrent avec du code R exécutable.
+- Les **exercices** sont des blocs `eval=FALSE` à compléter : remplacez les `...` par votre code, puis passez `eval=TRUE` pour les exécuter.
+- Les **corrigés** sont regroupés en fin de document (section « Corrigés ») : essayez d'abord seul·e.
+- Seul R de base est nécessaire (aucun package à installer).
+
+Jeux de données utilisés :
+
+- `PlantGrowth` (fourni avec R) : poids sec de plantes (`weight`) selon 3 groupes (`ctrl`, `trt1`, `trt2`), déjà vu dans le cours.
+- `ToothGrowth` (fourni avec R) : croissance dentaire de cobayes selon la dose et le type de supplément.
+- `diet` : jeu de données **simulé** ici, inspiré des diapositives (perte de poids selon 3 régimes A, B, C et le sexe).
+
+```{r donnees-diet}
+# Données simulées : 3 régimes x 2 sexes, 13 personnes par cellule (N = 78)
+diet <- data.frame(
+  diet.type = factor(rep(c("A", "B", "C"), each = 26)),
+  gender    = factor(rep(rep(c("Female", "Male"), each = 13), times = 3))
+)
+mu_cell <- c(A.Female = 2.9, A.Male = 3.8,
+             B.Female = 3.0, B.Male = 4.3,
+             C.Female = 6.7, C.Male = 4.4)
+diet$weight.loss <- rnorm(nrow(diet),
+                          mean = mu_cell[paste(diet$diet.type, diet$gender, sep = ".")],
+                          sd = 2.3)
+head(diet)
+str(diet)
+```
+# Comparer deux moyennes : test de Student
+
+On considère deux échantillons $x_i^{(1)} i=1,\dots,n$ et $x_j^{(2)},\quad j=1,\dots,m$ issus de dstributions de moyennes respectives $\mu_1$ et $\mu_2$. 
+
+On veut comparer les moyennes. On teste 
+
+$$H_0 : \mu_1 = \mu_2 \quad\text{contre}\quad H_1 :\mu_1 \neq \mu_2.$$
+
+
+- Si $n$ et $m$ sont grands, et les variances egales, on fait un test de Student
+- Si $n$ et/ou $m$ sont petits, que les distributions sont des lois de Gauss, on fait un test de Student ; les nombre de degrés de liberté dépend de l'égalité ou non des variances. 
+
+
+On peut adopter le point de vue de la modélisation pour formaliser le problème. 
+
+
+# Comparer deux moyennes : le point de vue « modèle » (p. 66)
+
+On veut comparer deux groupes indépendants (par exemple « contrôle » et « traité ») :
+
+$$x_i^{(1)} = \mu + \epsilon_i,\quad i=1,\dots,n \qquad\qquad x_j^{(2)} = \mu + \Delta + \eta_j,\quad j=1,\dots,m$$
+
+où $\Delta$ est l'effet du traitement par rapport au contrôle. On teste
+
+$$H_0 : \Delta = 0 \quad\text{contre}\quad H_1 : \Delta \neq 0 \;(\text{ou } \Delta<0,\ \Delta>0).$$
+
+- Si $n$ et $m$ sont grands, et les variances egales, on fait un test de Student quelque soit la loi des résidus $\epsilon$ et $\eta$.  
+- Si $n$ et/ou $m$ sont petits, que les distributions des résidus $\epsilon$ et $\eta$ sont des lois de Gauss, on fait un test de Student ; les nombre de degrés de liberté dépend de l'égalité ou non des variances. 
+
+
+Avec des variances égales, c'est le test de Student à deux échantillons. 
+
+```{r deux-moyennes}
+pg2 <- subset(PlantGrowth, group %in% c("ctrl", "trt1"))
+pg2$group <- droplevels(pg2$group)
+
+t.test(weight ~ group, data = pg2, var.equal = TRUE)
+```
+
+Mais c'est **aussi** un modèle linéaire : le coefficient associé au groupe « traité » est exactement $\hat\Delta$.
+
+```{r deux-moyennes, modele lineaire}
+
+mod = lm(weight ~ group, data = pg2)
+summary(mod)
+
+summary(lm(weight ~ group, data = pg2))$coefficients
+```
+
+
+## Exercice 1 — Student, régression et ANOVA : même test ?
+
+1. Réalisez le test de Student (variances égales) de `weight` entre `ctrl` et `trt1`, puis une ANOVA `aov(weight ~ group, data = pg2)`.
+2. Comparez la p-value des deux tests. Vérifiez numériquement que la statistique $F$ de l'ANOVA est égale au carré de la statistique $t$.
+3. Dans `lm`, que représente le coefficient `grouptrt1` ? Quel est son signe et pourquoi ?
+
+```{r ex1, eval=FALSE}
+tt  <- t.test(..., var.equal = TRUE)
+av  <- aov(..., data = pg2)
+F_obs <- summary(av)[[1]][["F value"]][1]
+c(t_au_carre = ..., F = F_obs)
+```
+
+# ANOVA : principe (p. 67–69)
+
+**ANOVA** = *ANalysis Of VAriance*, mais c'est un test de **différence de moyennes** entre $K$ groupes.
+
+Notations : $K$ groupes, $n_k$ individus dans le groupe $k$, $x_{ik}$ = observation $i$ du groupe $k$, $N=\sum_k n_k$.
+
+$$H_0 : \mu_1=\dots=\mu_K \qquad H_1 : \exists\, k,k' \text{ tels que } \mu_k \neq \mu_{k'}$$
+
+L'idée : la variation totale (somme des carrés des écarts) se décompose en deux parties **orthogonales** :
+
+- variabilité **intra-groupe** (fluctuations individuelles, « erreur ») : *Within SS*, notée $W$ ;
+- variabilité **inter-groupe** (effet du traitement) : *Between SS*, notée $B$.
+
+$$\underbrace{\sum_{k}\sum_{i}(x_{ik}-\bar x)^2}_{SST}=\underbrace{\sum_k n_k(\bar x_k-\bar x)^2}_{B}+\underbrace{\sum_k\sum_i(x_{ik}-\bar x_k)^2}_{W}$$
+
+Si la variabilité inter-groupe est grande **relativement** à la variabilité intra-groupe, au moins deux moyennes sont significativement différentes. Le test de Fisher regarde le rapport $B/W$ (corrigé par les degrés de liberté) : plus $F$ est grand, plus la différence est significative.
+
+```{r visu-plantgrowth}
+boxplot(weight ~ group, data = PlantGrowth, main = "PlantGrowth", ylab = "Poids sec")
+stripchart(weight ~ group, data = PlantGrowth, vertical = TRUE, method = "jitter",
+           pch = 16, col = "grey40", add = TRUE)
+```
+
+## Exercice 2 — Décomposition de la somme des carrés « à la main »
+
+Sur `PlantGrowth` :
+
+1. Calculez la moyenne générale, les moyennes par groupe et les effectifs.
+2. Calculez $SST$, $B$ et $W$. Vérifiez que $SST = B + W$.
+3. Calculez $F=\dfrac{B/(K-1)}{W/(N-K)}$ et la p-value avec `pf(..., lower.tail = FALSE)`.
+4. Comparez avec `summary(aov(weight ~ group, data = PlantGrowth))`.
+
+```{r ex2, eval=FALSE}
+y <- PlantGrowth$weight
+g <- PlantGrowth$group
+N <- length(y); K <- nlevels(g)
+ybar   <- mean(y)
+ybar_k <- tapply(y, g, mean)
+n_k    <- tapply(y, g, length)
+
+SST <- sum((y - ybar)^2)
+B   <- ...
+W   <- ...
+c(SST = SST, B_plus_W = B + W)
+
+F_obs <- ...
+p_val <- pf(F_obs, df1 = ..., df2 = ..., lower.tail = FALSE)
+c(F = F_obs, p = p_val)
+```
+
+# Pourquoi ne pas faire tous les tests deux à deux ? (p. 70)
+
+Pour $m$ comparaisons **indépendantes** au niveau $\alpha$, la probabilité de rejeter au moins une fois $H_0$ alors qu'elle est vraie est
+
+$$\alpha_m = 1-(1-\alpha)^m .$$
+
+```{r inflation-risque}
+m <- c(1, 3, 5, 10, 21)
+data.frame(m = m, risque_global = round(1 - (1 - 0.05)^m, 2))
+```
+
+On retrouve 0,14 ; 0,23 ; 0,40 ; 0,66 (diapositive 70). Le risque de première espèce n'est plus contrôlé à 5 % : le procédé est **anti-conservatif** (libéral).
+
+## Exercice 3 — Simulation de l'inflation du risque de première espèce
+
+On simule 3 groupes de 10 observations suivant **la même** loi $\mathcal N(0,1)$ ($H_0$ est vraie), 2000 fois.
+
+1. Estimez la proportion de simulations où l'ANOVA rejette $H_0$ au seuil 5 %. Que devrait-on trouver ?
+2. Estimez la proportion de simulations où **au moins un** des 3 tests de Student deux à deux (sans correction) a une p-value < 0,05. Comparez avec $1-(1-0{,}05)^3$.
+3. Refaites 2. avec la correction de Bonferroni (`p.adjust.method = "bonferroni"`).
+
+```{r ex3, eval=FALSE}
+nsim <- 2000
+res <- replicate(nsim, {
+  d <- data.frame(y = rnorm(30), g = factor(rep(1:3, each = 10)))
+  p_anova <- summary(aov(y ~ g, data = d))[[1]][["Pr(>F)"]][1]
+  p_pair  <- pairwise.t.test(d$y, d$g, p.adjust.method = "none")$p.value
+  p_bonf  <- pairwise.t.test(d$y, d$g, p.adjust.method = "bonferroni")$p.value
+  c(anova = p_anova < 0.05,
+    paires = any(p_pair < 0.05, na.rm = TRUE),
+    bonferroni = any(p_bonf < 0.05, na.rm = TRUE))
+})
+rowMeans(res)
+```
+
+# Le modèle de l'ANOVA à un facteur (p. 71–73)
+
+On suppose $\epsilon_{ik}\overset{iid}{\sim}\mathcal N(0,\sigma^2)$.
+
+- Sous $H_0$ : $x_{ik}=\mu+\epsilon_{ik}$.
+- Sous $H_1$ : $x_{ik}=\mu+\Delta_k+\epsilon_{ik}$, avec la contrainte $\sum_k n_k\Delta_k=0$, où $\Delta_k$ est l'effet de la modalité $k$ du facteur.
+
+Pour chaque modèle on peut estimer la variance résiduelle ; le test de Fisher compare ces deux estimations. La statistique du test est (diapositive 73)
+
+$$F=\frac{N\,s^2_{\bar Y}}{s^2_p}\sim F_{K-1,\,N-K}\quad\text{sous }H_0,$$
+
+$$s^2_{\bar Y}=\frac{1}{K-1}\sum_{k=1}^K\frac{n_k}{N}(\bar Y_k-\bar Y)^2,\qquad s_p^2=\frac{1}{N-K}\sum_{k=1}^K (n_k-1)s_k^2 .$$
+
+> **Remarque.** Sur la diapositive, le facteur devant $s_p^2$ est écrit $1/(K-1)$ ; pour que $F$ suive bien une loi de Fisher $F_{K-1,N-K}$ (et égale $\frac{B/(K-1)}{W/(N-K)}$), la variance poolée $s_p^2$ est normalisée par $N-K$, comme ci-dessus.
+
+Illustration sur les données simulées `diet`, en ignorant d'abord le sexe :
+
+```{r anova-diet}
+boxplot(weight.loss ~ diet.type, data = diet, horizontal = TRUE,
+        main = "Perte de poids selon le régime", xlab = "Perte de poids")
+stripchart(weight.loss ~ diet.type, data = diet, method = "jitter",
+           pch = 16, col = rgb(1, 0, 0.5, 0.4), add = TRUE)
+abline(v = 0, col = "deepskyblue")
+
+fit1 <- aov(weight.loss ~ diet.type, data = diet)
+summary(fit1)
+```
+
+La table d'ANOVA donne : `Df` (degrés de liberté), `Sum Sq` ($B$ pour `diet.type`, $W$ pour `Residuals`), `Mean Sq` (somme des carrés / ddl), `F value` et `Pr(>F)`.
+
+```{r anova-estimations}
+model.tables(fit1, type = "means")     # moyennes par groupe
+coef(lm(weight.loss ~ diet.type, data = diet))  # contrastes (A = référence)
+```
+
+## Exercice 4 — Lire et interpréter une table d'ANOVA
+
+1. Calculez à la main, à partir des moyennes de groupes, la statistique $F$ de `fit1` avec les formules de $s^2_{\bar Y}$ et $s^2_p$ ci-dessus. Vérifiez que vous retrouvez la valeur de `summary(fit1)`.
+2. Calculez la part de variance expliquée par le régime : $\eta^2 = B/SST$.
+3. Concluez en une phrase, dans le contexte de l'étude (au risque 5 %).
+
+```{r ex4, eval=FALSE}
+y <- diet$weight.loss; g <- diet$diet.type
+N <- length(y); K <- nlevels(g)
+n_k <- tapply(y, g, length); m_k <- tapply(y, g, mean); v_k <- tapply(y, g, var)
+ybar <- mean(y)
+
+s2_Ybar <- ...
+s2_p    <- ...
+F_obs   <- N * s2_Ybar / s2_p
+F_obs
+
+eta2 <- ...
+eta2
+```
+
+# Vérification du modèle : analyse des résidus (p. 76)
+
+Les résidus sont $\hat\epsilon_{ik}=Y_{ik}-\hat\mu-\hat\Delta_k = Y_{ik}-\bar Y_k$. L'ANOVA de Fisher suppose :
+
+1. des résidus **gaussiens** (diagramme quantile-quantile, test de Shapiro-Wilk) ;
+2. des variances **égales** dans les groupes (boîtes à moustaches des résidus, test de Bartlett) ;
+3. des observations **indépendantes** (c'est le plan d'expérience qui le garantit).
+
+```{r residus}
+diet$resid <- residuals(fit1)
+
+par(mfrow = c(1, 2))
+boxplot(resid ~ diet.type, data = diet, main = "Résidus par groupe",
+        xlab = "Régime", ylab = "Résidus")
+abline(h = 0)
+qqnorm(diet$resid, main = "Normal Q-Q Plot",
+       col = as.integer(diet$diet.type) + 1)
+qqline(diet$resid)
+par(mfrow = c(1, 1))
+
+shapiro.test(diet$resid)
+bartlett.test(resid ~ diet.type, data = diet)
+```
+
+> Rappel (p. 52) : sur de très petits échantillons, Shapiro-Wilk a peu de puissance ; il faut **toujours** regarder aussi le qq-plot. Le test de Bartlett est lui-même sensible à la non-normalité.
+
+## Exercice 5 — Valider les hypothèses sur `PlantGrowth`
+
+1. Calculez les résidus de `aov(weight ~ group, data = PlantGrowth)`.
+2. Tracez le qq-plot et réalisez le test de Shapiro-Wilk.
+3. Testez l'égalité des variances avec `bartlett.test`. Les conditions d'application de l'ANOVA de Fisher sont-elles raisonnablement satisfaites ?
+
+```{r ex5, eval=FALSE}
+fit_pg <- aov(weight ~ group, data = PlantGrowth)
+r <- residuals(fit_pg)
+qqnorm(...); qqline(...)
+shapiro.test(...)
+bartlett.test(...)
+```
+
+# ANOVA de Welch : variances inégales (p. 74)
+
+Dans l'ANOVA de Fisher, on suppose toutes les variances égales. L'ANOVA de Welch lève cette hypothèse : modèle $Y_{i(g)}=\mu_g+\epsilon_{i(g)}$ avec $\epsilon_{i(g)}\sim\mathcal N(0,\sigma_g^2)$, et les groupes sont pondérés par $w_g=n_g/s_g^2$. La statistique $F^\star$ suit approximativement une loi de Fisher$(G-1,\Delta)$ (le second degré de liberté est non entier et estimé).
+
+```{r welch}
+oneway.test(weight.loss ~ diet.type, data = diet, var.equal = FALSE)  # Welch
+oneway.test(weight.loss ~ diet.type, data = diet, var.equal = TRUE)   # = Fisher
+```
+
+## Exercice 6 — Fisher ou Welch ?
+
+On simule trois groupes de **même moyenne** mais d'écarts-types très différents et d'effectifs déséquilibrés :
+
+```{r ex6-donnees}
+sim_het <- function() {
+  data.frame(
+    y = c(rnorm(10, 0, 1), rnorm(10, 0, 3), rnorm(40, 0, 6)),
+    g = factor(rep(c("g1", "g2", "g3"), times = c(10, 10, 40)))
+  )
+}
+```
+
+1. Répétez 2000 fois la simulation et estimez la proportion de rejets de $H_0$ à 5 % pour l'ANOVA de Fisher et pour celle de Welch. $H_0$ est vraie : quel test respecte le mieux le niveau 5 % ?
+2. Quel lien faites-vous avec le test de Student à variances différentes vu en cours (p. 62) ?
+
+```{r ex6, eval=FALSE}
+res <- replicate(2000, {
+  d <- sim_het()
+  c(fisher = oneway.test(y ~ g, data = d, var.equal = TRUE)$p.value < 0.05,
+    welch  = oneway.test(y ~ g, data = d, var.equal = FALSE)$p.value < 0.05)
+})
+rowMeans(res)
+```
+
+# Plus de deux groupes sans hypothèse de normalité : Kruskal-Wallis (p. 75)
+
+Le test de Kruskal-Wallis est l'analogue non paramétrique de l'ANOVA : on travaille sur les **rangs globaux** $R_{ik}$ des observations. Avec $V$ valeurs distinctes et $t_v$ le nombre de répétitions de la valeur $v$ (ex æquo), la statistique corrigée est
+
+$$S=\frac{\dfrac{12}{N(N+1)}\sum_{k=1}^K \dfrac{R_{k}^2}{n_k}-3(N+1)}{1-\dfrac{\sum_{v}(t_v^3-t_v)}{N^3-N}}\;\overset{H_0}{\approx}\;\chi^2_{K-1},$$
+
+où $R_k=\sum_i R_{ik}$ est la somme des rangs du groupe $k$.
+
+> Les diapositives écrivent $-3(N-1)$ et $\bar R_k$ au numérateur ; la forme classique, utilisée par `kruskal.test`, est celle ci-dessus (avec $N+1$ et la somme des rangs $R_k$).
+
+```{r kruskal}
+kruskal.test(weight.loss ~ diet.type, data = diet)
+kruskal.test(weight ~ group, data = PlantGrowth)
+```
+
+## Exercice 7 — Kruskal-Wallis à la main
+
+1. Calculez les rangs de `PlantGrowth$weight` (`rank`, qui attribue les rangs moyens en cas d'ex æquo), puis la somme des rangs de chaque groupe.
+2. Calculez $S$ **sans** puis **avec** la correction pour ex æquo. Comparez à `kruskal.test` (chi² = 7,9882 dans le cours).
+3. Calculez la p-value avec `pchisq(..., df = K - 1, lower.tail = FALSE)`.
+
+```{r ex7, eval=FALSE}
+y <- PlantGrowth$weight; g <- PlantGrowth$group
+N <- length(y); K <- nlevels(g)
+r   <- rank(y)
+R_k <- tapply(r, g, sum)
+n_k <- tapply(r, g, length)
+
+S0 <- 12 / (N * (N + 1)) * sum(R_k^2 / n_k) - 3 * (N + 1)
+t_v <- table(y)
+C   <- 1 - sum(t_v^3 - t_v) / (N^3 - N)
+S   <- S0 / C
+c(S_sans_correction = S0, S_corrige = S)
+pchisq(S, df = K - 1, lower.tail = FALSE)
+```
+
+# Comparaisons multiples : quelles paires diffèrent ? (p. 77)
+
+Après un test global significatif, on cherche **quelles paires** de moyennes diffèrent, soit $K(K-1)/2$ tests de $H : \mu_k=\mu_{k'}$. Une correction est indispensable :
+
+| Correction | Principe | Remarque |
+|---|---|---|
+| Bonferroni | niveau $\alpha/M$ pour chaque test | simple, conservatif |
+| Dunn-Šidák | niveau $1-(1-\alpha)^{1/M}$ pour chaque test | pour tests indépendants |
+| Tukey (HSD) | tient compte de la dépendance entre les comparaisons | après une ANOVA, variances égales |
+
+```{r comparaisons-multiples}
+M <- choose(3, 2)   # 3 groupes -> 3 paires
+alpha <- 0.05
+c(bonferroni = alpha / M, sidak = 1 - (1 - alpha)^(1 / M))
+
+pairwise.t.test(diet$weight.loss, diet$diet.type, p.adjust.method = "bonferroni")
+TukeyHSD(fit1)
+plot(TukeyHSD(fit1))
+```
+
+## Exercice 8 — Comparaisons multiples sur `PlantGrowth`
+
+1. Réalisez les comparaisons deux à deux par `pairwise.wilcox.test` avec les corrections `"none"`, `"bonferroni"` et `"holm"`. Que remarquez-vous sur les p-values ?
+2. Réalisez `TukeyHSD` sur l'ANOVA. Quels groupes diffèrent au risque 5 % ?
+3. Pourquoi, après une ANOVA significative, ne conclut-on pas directement en comparant les moyennes « à l'œil » ?
+
+```{r ex8, eval=FALSE}
+for (m in c("none", "bonferroni", "holm")) {
+  cat("\n---", m, "---\n")
+  print(pairwise.wilcox.test(PlantGrowth$weight, PlantGrowth$group,
+                             p.adjust.method = m))
+}
+TukeyHSD(aov(weight ~ group, data = PlantGrowth))
+```
+
+# ANOVA à deux facteurs (p. 78–80)
+
+On croise deux facteurs : ici le **régime** (indice $k$) et le **sexe** (indice $\ell$). Modèle de Fisher à deux facteurs :
+
+$$Y_{ik\ell}=\mu_{k\ell}+\epsilon_{i(k\ell)}=\mu+\Delta_k+\Delta_\ell+\Delta_{k\ell}+\epsilon_{i(k\ell)},\qquad \epsilon_{i(k\ell)}\sim\mathcal N(0,\sigma^2),$$
+
+avec les contraintes $\sum n_k\Delta_k=\sum n_\ell\Delta_\ell=\sum n_{k\ell}\Delta_{k\ell}=0$. On teste trois hypothèses :
+
+- $H0_{(1)} : \Delta_k=0\ \forall k$ (pas d'effet du régime) ;
+- $H0_{(2)} : \Delta_\ell=0\ \forall \ell$ (pas d'effet du sexe) ;
+- $H0_{(3)} : \Delta_{k\ell}=0\ \forall k,\ell$ (pas d'**interaction** : l'effet du régime est le même pour les deux sexes).
+
+```{r anova-2way}
+boxplot(weight.loss ~ diet.type + gender, data = diet, las = 2,
+        col = rep(c("pink", "lightblue"), 3), ylab = "Perte de poids")
+
+fit2 <- aov(weight.loss ~ diet.type * gender, data = diet)
+summary(fit2)
+
+with(diet, interaction.plot(diet.type, gender, weight.loss,
+                            type = "b", pch = c(3, 1), col = c("deeppink", "slateblue"),
+                            xlab = "Régime", ylab = "Perte de poids moyenne"))
+```
+
+Sur le graphique d'interaction, des courbes **parallèles** indiquent l'absence d'interaction ; des courbes qui se croisent ou ne sont pas parallèles indiquent une interaction. Sur la diapositive 79, six scénarios sont illustrés ; l'exercice suivant permet de les simuler.
+
+## Exercice 9 — Simuler et lire les scénarios de la diapositive 79
+
+On simule des données équilibrées (13 par cellule) à partir de moyennes de cellules choisies :
+
+```{r ex9-fonction}
+simule_2way <- function(mu_diet, mu_gender = c(0, 0), interaction = matrix(0, 3, 2),
+                        mu = 2, sigma = 1, n = 13) {
+  d <- expand.grid(rep = 1:n, diet.type = c("A", "B", "C"), gender = c("Female", "Male"))
+  k <- as.integer(d$diet.type); l <- as.integer(d$gender)
+  d$y <- mu + mu_diet[k] + mu_gender[l] + interaction[cbind(k, l)] + rnorm(nrow(d), 0, sigma)
+  d$diet.type <- factor(d$diet.type); d$gender <- factor(d$gender)
+  d
+}
+```
+
+1. **Scénario « effet du régime seul »** : `mu_diet = c(-1, 0.5, 0.5)`. Ajustez `aov(y ~ diet.type * gender)`. Quelles lignes de la table sont significatives ?
+2. **Scénario « effets additifs régime + sexe »** : ajoutez `mu_gender = c(0.5, -0.5)`. Que devient l'interaction ?
+3. **Scénario avec interaction** : ajoutez `interaction = matrix(c(-0.5, 0.5, 0, 0, 0.5, -0.5), 3, 2)`. Tracez le graphique d'interaction et relevez la p-value de la ligne `diet.type:gender`.
+4. Quand une interaction est significative, peut-on interpréter « l'effet principal du régime » isolément ? Pourquoi ?
+
+```{r ex9, eval=FALSE}
+d1 <- simule_2way(mu_diet = c(-1, 0.5, 0.5))
+summary(aov(y ~ diet.type * gender, data = d1))
+
+d2 <- simule_2way(mu_diet = c(-1, 0.5, 0.5), mu_gender = c(0.5, -0.5))
+...
+
+d3 <- simule_2way(mu_diet = c(-1, 0.5, 0.5), mu_gender = c(0.5, -0.5),
+                  interaction = matrix(c(-0.5, 0.5, 0, 0, 0.5, -0.5), 3, 2))
+...
+with(d3, interaction.plot(diet.type, gender, y))
+```
+
+# Exercice de synthèse — `ToothGrowth`
+
+`ToothGrowth` contient la longueur des odontoblastes (`len`) de 60 cobayes, selon le supplément (`supp` : `OJ` jus d'orange, `VC` vitamine C) et la dose (`dose` : 0,5 ; 1 ; 2 mg/jour).
+
+```{r tooth-prep}
+tg <- ToothGrowth
+tg$dose <- factor(tg$dose)
+str(tg)
+```
+
+1. Représentez `len` selon `dose` et `supp` (boîtes à moustaches et graphique d'interaction).
+2. Ajustez l'ANOVA à deux facteurs avec interaction. Quelles hypothèses $H0_{(1)}$, $H0_{(2)}$, $H0_{(3)}$ rejette-t-on ?
+3. Vérifiez les hypothèses du modèle (résidus : qq-plot, Shapiro-Wilk, Bartlett sur les 6 cellules).
+4. Réalisez des comparaisons multiples de Tukey sur le facteur `dose`. Concluez en termes cliniques (dans le contexte de l'expérience).
+5. Si les hypothèses de normalité ou d'homogénéité vous semblent douteuses, que proposez-vous (Kruskal-Wallis par supplément, Welch) ?
+
+```{r ex10, eval=FALSE}
+boxplot(len ~ dose + supp, data = tg, las = 2)
+with(tg, interaction.plot(dose, supp, len))
+
+fit_tg <- aov(len ~ dose * supp, data = tg)
+summary(fit_tg)
+
+...
+```
+
+---
+
+# Corrigés
+
+> Essayez d'abord les exercices avant de lire cette section.
+
+## Corrigé de l'exercice 1
+
+```{r sol1}
+pg2 <- subset(PlantGrowth, group %in% c("ctrl", "trt1"))
+pg2$group <- droplevels(pg2$group)
+
+tt <- t.test(weight ~ group, data = pg2, var.equal = TRUE)
+av <- aov(weight ~ group, data = pg2)
+F_obs <- summary(av)[[1]][["F value"]][1]
+
+c(p_student = tt$p.value, p_anova = summary(av)[[1]][["Pr(>F)"]][1])
+c(t_au_carre = unname(tt$statistic)^2, F = F_obs)
+coef(lm(weight ~ group, data = pg2))
+```
+
+Les deux p-values sont identiques et $F=t^2$ : avec deux groupes, l'ANOVA de Fisher et le test de Student (variances égales) sont **le même test**. Le coefficient `grouptrt1` est $\hat\Delta=\bar x_{trt1}-\bar x_{ctrl}$ (le groupe de référence est `ctrl`) ; il est négatif car le poids moyen de `trt1` est plus faible que celui du contrôle.
+
+## Corrigé de l'exercice 2
+
+```{r sol2}
+y <- PlantGrowth$weight
+g <- PlantGrowth$group
+N <- length(y); K <- nlevels(g)
+ybar   <- mean(y)
+ybar_k <- tapply(y, g, mean)
+n_k    <- tapply(y, g, length)
+
+SST <- sum((y - ybar)^2)
+B   <- sum(n_k * (ybar_k - ybar)^2)
+W   <- sum((y - ybar_k[g])^2)
+c(SST = SST, B_plus_W = B + W, B = B, W = W)
+
+F_obs <- (B / (K - 1)) / (W / (N - K))
+p_val <- pf(F_obs, df1 = K - 1, df2 = N - K, lower.tail = FALSE)
+c(F = F_obs, p = p_val)
+
+summary(aov(weight ~ group, data = PlantGrowth))
+```
+
+On retrouve $SST=B+W$ (décomposition orthogonale) et les mêmes $F$ et p-value que `aov`.
+
+## Corrigé de l'exercice 3
+
+```{r sol3}
+nsim <- 2000
+res <- replicate(nsim, {
+  d <- data.frame(y = rnorm(30), g = factor(rep(1:3, each = 10)))
+  p_anova <- summary(aov(y ~ g, data = d))[[1]][["Pr(>F)"]][1]
+  p_pair  <- pairwise.t.test(d$y, d$g, p.adjust.method = "none")$p.value
+  p_bonf  <- pairwise.t.test(d$y, d$g, p.adjust.method = "bonferroni")$p.value
+  c(anova = p_anova < 0.05,
+    paires_sans_correction = any(p_pair < 0.05, na.rm = TRUE),
+    paires_bonferroni = any(p_bonf < 0.05, na.rm = TRUE))
+})
+round(rowMeans(res), 3)
+1 - (1 - 0.05)^3
+```
+
+L'ANOVA rejette à tort environ 5 % du temps (niveau respecté). Les 3 tests par paires sans correction rejettent à tort environ 12–14 % du temps (proche de $1-(1-0{,}05)^3\approx0{,}14$ ; un peu moins car les 3 tests ne sont pas indépendants). Avec Bonferroni, le niveau global est de nouveau proche (ou en dessous) de 5 %.
+
+## Corrigé de l'exercice 4
+
+```{r sol4}
+y <- diet$weight.loss; g <- diet$diet.type
+N <- length(y); K <- nlevels(g)
+n_k <- tapply(y, g, length); m_k <- tapply(y, g, mean); v_k <- tapply(y, g, var)
+ybar <- mean(y)
+
+s2_Ybar <- sum(n_k / N * (m_k - ybar)^2) / (K - 1)
+s2_p    <- sum((n_k - 1) * v_k) / (N - K)
+F_obs   <- N * s2_Ybar / s2_p
+F_obs
+summary(fit1)[[1]][["F value"]][1]
+
+SSB <- sum(n_k * (m_k - ybar)^2); SST <- sum((y - ybar)^2)
+eta2 <- SSB / SST
+eta2
+```
+
+Les deux valeurs de $F$ coïncident. $\eta^2$ mesure la proportion de la variabilité de la perte de poids expliquée par le régime. Avec une p-value inférieure à 0,05, on rejette l'égalité des moyennes : au risque 5 %, la perte de poids moyenne n'est pas la même pour les trois régimes (au moins un diffère des autres).
+
+## Corrigé de l'exercice 5
+
+```{r sol5}
+fit_pg <- aov(weight ~ group, data = PlantGrowth)
+r <- residuals(fit_pg)
+qqnorm(r); qqline(r)
+shapiro.test(r)
+bartlett.test(weight ~ group, data = PlantGrowth)
+```
+
+Le qq-plot est proche de la diagonale, Shapiro-Wilk ne rejette pas la normalité et Bartlett ne rejette pas l'égalité des variances : les conditions d'application de l'ANOVA de Fisher sont raisonnablement satisfaites (à nuancer : 10 observations par groupe seulement, donc peu de puissance pour détecter un écart).
+
+## Corrigé de l'exercice 6
+
+```{r sol6}
+sim_het <- function() {
+  data.frame(
+    y = c(rnorm(10, 0, 1), rnorm(10, 0, 3), rnorm(40, 0, 6)),
+    g = factor(rep(c("g1", "g2", "g3"), times = c(10, 10, 40)))
+  )
+}
+res <- replicate(2000, {
+  d <- sim_het()
+  c(fisher = oneway.test(y ~ g, data = d, var.equal = TRUE)$p.value < 0.05,
+    welch  = oneway.test(y ~ g, data = d, var.equal = FALSE)$p.value < 0.05)
+})
+rowMeans(res)
+```
+
+Ici le plus petit groupe a la plus petite variance et le plus grand groupe la plus grande ; dans ce cas, Fisher est **trop libéral** (niveau réel au-dessus de 5 %), alors que Welch reste proche de 5 %. C'est la généralisation à $G$ groupes du test de Student à variances différentes (statistique $T$ avec $S=s_X^2/n+s_Y^2/m$ et degrés de liberté de Welch-Satterthwaite $\kappa$) : quand les variances diffèrent, on pondère chaque groupe par l'inverse de la variance de sa moyenne.
+
+## Corrigé de l'exercice 7
+
+```{r sol7}
+y <- PlantGrowth$weight; g <- PlantGrowth$group
+N <- length(y); K <- nlevels(g)
+r   <- rank(y)
+R_k <- tapply(r, g, sum)
+n_k <- tapply(r, g, length)
+
+S0 <- 12 / (N * (N + 1)) * sum(R_k^2 / n_k) - 3 * (N + 1)
+t_v <- table(y)
+C   <- 1 - sum(t_v^3 - t_v) / (N^3 - N)
+S   <- S0 / C
+c(S_sans_correction = S0, S_corrige = S)
+pchisq(S, df = K - 1, lower.tail = FALSE)
+kruskal.test(weight ~ group, data = PlantGrowth)
+```
+
+La statistique corrigée correspond à celle de `kruskal.test` (chi² ≈ 7,99, p ≈ 0,018, comme dans le cours). Sans ex æquo, la correction vaut 1.
+
+## Corrigé de l'exercice 8
+
+```{r sol8}
+for (m in c("none", "bonferroni", "holm")) {
+  cat("\n---", m, "---\n")
+  print(pairwise.wilcox.test(PlantGrowth$weight, PlantGrowth$group,
+                             p.adjust.method = m))
+}
+TukeyHSD(aov(weight ~ group, data = PlantGrowth))
+```
+
+Les corrections augmentent les p-values (Bonferroni : p × nombre de comparaisons, plafonné à 1 ; Holm est un peu moins conservative). La différence `trt1`–`trt2` est la plus nette ; `ctrl` ne diffère significativement d'aucun traitement après correction. Le test de Tukey conduit à la même conclusion. Comparer les moyennes « à l'œil » ou faire des tests sans correction fait exploser le risque global de première espèce (cf. exercice 3).
+
+## Corrigé de l'exercice 9
+
+```{r sol9}
+simule_2way <- function(mu_diet, mu_gender = c(0, 0), interaction = matrix(0, 3, 2),
+                        mu = 2, sigma = 1, n = 13) {
+  d <- expand.grid(rep = 1:n, diet.type = c("A", "B", "C"), gender = c("Female", "Male"))
+  k <- as.integer(d$diet.type); l <- as.integer(d$gender)
+  d$y <- mu + mu_diet[k] + mu_gender[l] + interaction[cbind(k, l)] + rnorm(nrow(d), 0, sigma)
+  d$diet.type <- factor(d$diet.type); d$gender <- factor(d$gender)
+  d
+}
+
+d1 <- simule_2way(mu_diet = c(-1, 0.5, 0.5))
+summary(aov(y ~ diet.type * gender, data = d1))
+
+d2 <- simule_2way(mu_diet = c(-1, 0.5, 0.5), mu_gender = c(0.5, -0.5))
+summary(aov(y ~ diet.type * gender, data = d2))
+
+d3 <- simule_2way(mu_diet = c(-1, 0.5, 0.5), mu_gender = c(0.5, -0.5),
+                  interaction = matrix(c(-0.5, 0.5, 0, 0, 0.5, -0.5), 3, 2))
+summary(aov(y ~ diet.type * gender, data = d3))
+with(d3, interaction.plot(diet.type, gender, y, type = "b",
+                          col = c("deeppink", "slateblue")))
+```
+
+1. Seule la ligne `diet.type` est significative.
+2. `diet.type` et `gender` sont significatifs, mais pas l'interaction : les courbes du graphique d'interaction sont parallèles (effets **additifs**).
+3. L'interaction (`diet.type:gender`) devient détectable (si $\sigma$ est assez petit ou $n$ assez grand) : les courbes ne sont plus parallèles.
+4. En présence d'interaction significative, l'effet du régime **dépend** du sexe : on ne peut pas interpréter l'effet principal isolément ; on étudie l'effet du régime séparément pour chaque sexe (ou on décrit les différences par cellule).
+
+## Corrigé de l'exercice de synthèse (`ToothGrowth`)
+
+```{r sol10, fig.width=8}
+tg <- ToothGrowth
+tg$dose <- factor(tg$dose)
+
+par(mfrow = c(1, 2))
+boxplot(len ~ dose + supp, data = tg, las = 2, col = rep(c("tomato", "skyblue", "gold"), 2))
+with(tg, interaction.plot(dose, supp, len, type = "b",
+                          col = c("deeppink", "slateblue")))
+par(mfrow = c(1, 1))
+
+fit_tg <- aov(len ~ dose * supp, data = tg)
+summary(fit_tg)
+
+# Hypothèses du modèle
+r <- residuals(fit_tg)
+qqnorm(r); qqline(r)
+shapiro.test(r)
+bartlett.test(len ~ interaction(dose, supp), data = tg)
+
+# Comparaisons multiples sur la dose
+TukeyHSD(fit_tg, which = "dose")
+
+# Alternatives si besoin
+oneway.test(len ~ dose, data = subset(tg, supp == "OJ"), var.equal = FALSE)
+kruskal.test(len ~ dose, data = subset(tg, supp == "VC"))
+```
+
+Lecture attendue : la dose a un effet très significatif (la longueur augmente avec la dose), le supplément a aussi un effet significatif et l'interaction `dose:supp` est significative : l'avantage du jus d'orange sur la vitamine C est marqué pour les doses faibles et disparaît à la dose de 2 mg (les courbes se rejoignent). L'interaction étant significative, on interprète l'effet du supplément **dose par dose**. Les résidus sont raisonnablement gaussiens ; l'homogénéité des variances est à surveiller (voir Bartlett). Si elle est douteuse, on peut utiliser Welch ou Kruskal-Wallis dans chaque sous-groupe, avec correction de multiplicité.
+
+---
+
+# Récapitulatif
+
+| Situation | Test | Fonction R |
+|---|---|---|
+| 2 moyennes, variances égales, gaussien | Student | `t.test(..., var.equal = TRUE)` |
+| $K\ge 3$ moyennes, variances égales, gaussien | ANOVA de Fisher | `aov()`, `summary()` |
+| $K\ge 3$ moyennes, variances inégales | ANOVA de Welch | `oneway.test(..., var.equal = FALSE)` |
+| $K\ge 3$ groupes, sans hypothèse de loi | Kruskal-Wallis | `kruskal.test()` |
+| Normalité des résidus | Shapiro-Wilk, qq-plot | `shapiro.test()`, `qqnorm()` |
+| Égalité des variances ($K\ge 3$) | Bartlett | `bartlett.test()` |
+| Quelles paires diffèrent ? | Bonferroni, Šidák, Tukey | `pairwise.t.test()`, `TukeyHSD()`, `p.adjust()` |
+| 2 facteurs + interaction | ANOVA à deux facteurs | `aov(y ~ A * B)` |
+
+```{r session}
+sessionInfo()
+```
