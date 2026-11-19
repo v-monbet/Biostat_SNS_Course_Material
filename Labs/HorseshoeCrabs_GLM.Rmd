@@ -1,0 +1,155 @@
+---
+title: "Horseshoecrab - regression logistique"
+output: html_document
+date: "2026-11-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+---
+  title: "TP : Modèles Linéaires Généralisés (GLM)"
+subtitle: "Régression logistique et de Poisson - Données des Crabes Fer à Cheval"
+author: "Master 2 Pharmacologie - Biostatistiques Appliquées"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+  toc: true
+toc_float: true
+number_sections: true
+theme: cosmo
+highlight: tango
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(ggplot2)
+library(car)
+```
+
+Charger les données (disponibles par exemple via le package faraway ou un fichier CSV) et inspecter la structure de la table.   Creer une variable binomiale 
+
+```{r data, include=FALSE}
+# install.packages("Renvlp")
+library(Renvlp)
+data("horseshoecrab")
+colnames(horseshoecrab) = c("Color","spine","Width","Satellite","Weight")
+
+# Création d'une variable binaire Y (1 si sa > 0, 0 sinon)
+horseshoecrab$y <- ifelse(horseshoecrab$Satellite > 0, 1, 0)
+head(horseshoecrab)
+summary(horseshoecrab)
+```
+
+Ajuster un modèle de régression logistique simple expliquant la présence de satellites (y, binaire) en fonction de la largeur de la carapace (width). Écrire l'équation du modèle estimé. 
+```{r reglog1, include=FALSE}
+# Modèle logistique avec la fonction glm (famille binomiale, lien logit)
+mod_simple <- glm(y ~ Width, family = binomial(link = "logit"), data = horseshoecrab)
+summary(mod_simple)
+```
+
+Interpréter le coefficient associé à la variable width en termes de rapport de cotes (Odds Ratio - OR).   
+
+```{r OddsRatio, include=FALSE}
+# Extraction des coefficients et exponentiation pour obtenir les Odds Ratios
+coefs <- coef(mod_simple)
+or <- exp(coefs)
+conf_int <- exp(confint(mod_simple))
+
+cbind(OR = or, CI_inf = conf_int[, 1], CI_sup = conf_int[, 2])
+```
+
+
+Calculer la probabilité prédite d'avoir un satellite pour une largeur de carapace minimale (
+21.0 cm) et maximale (33.5 cm).
+```{r Pred, include=FALSE}
+# Fonction de prédiction inverse du logit
+inv_logit <- function(eta) { exp(eta) / (1 + exp(eta)) }
+
+# Largeurs min et max observées
+width_min <- min(horseshoecrab$Width)
+width_max <- max(horseshoecrab$Width)
+
+p_min <- inv_logit(coefs[1] + coefs[2] * width_min)
+p_max <- inv_logit(coefs[1] + coefs[2] * width_max)
+
+cat("Probabilité prédite pour width =", width_min, "cm :", round(p_min, 4), "\n")
+cat("Probabilité prédite pour width =", width_max, "cm :", round(p_max, 4), "\n")
+```
+
+Transformer la variable color en facteur dans R. Quel est le nombre de variables muettes (dummy variables) introduites dans le modèle pour 4 catégories de couleur ?
+```{r color, include=FALSE}
+# Transformation en facteur (la catégorie de référence est la première, c'est-à-dire color = 1)
+horseshoecrab$Color_f <- as.factor(horseshoecrab$Color)
+```
+
+Ajuster un modèle logistique multiple incluant la largeur (width) et la couleur (color) et interpreter les differents coefficients. 
+```{r reglog2, include=FALSE}
+mod_mult <- glm(y ~ Width + Color_f, family = binomial(link = "logit"), data = horseshoecrab)
+summary(mod_mult)
+```
+
+
+Réaliser un test du rapport de vraisemblance (LRT) global pour évaluer l'apport de la variable color.
+```{r test LR, include=FALSE}
+Anova(mod_simple, mod_mult, test = "LR")
+```
+
+Interpréter graphiquement ou mathématiquement l'hypothèse de parallélisme des courbes de probabilité selon la couleur.
+
+```{r plot, include=FALSE}
+library(ggplot2)
+library(dplyr)
+
+# 1. Création d'une grille de prédiction couvrant l'étendue des largeurs (18 à 34.5 cm)
+grille_pred <- expand.grid(
+  Width = seq(18, 34.5, length.out = 200),
+  Color_f = factor(2:5)#, labels = c("1 : Moyen-clair", "2 : Moyen", "3 : Moyen-sombre", "4 : Sombre"))
+)
+
+
+# 2. Calcul des moyennes empiriques (proportions observées par classe de largeur et par couleur)
+# On découpe la largeur en 4 intervalles (quantiles ou intervalles réguliers) pour garder assez d'effectifs par groupe
+donnees_emp <- horseshoecrab %>%
+  mutate(
+    color_f = factor(Color, levels = 2:5),
+    classe_width = cut(Width, breaks = quantile(Width, probs = seq(0, 1, by = 0.25)), include.lowest = TRUE)
+  ) %>%
+  group_by(Color_f, classe_width) %>%
+  summarise(
+    width_moy = mean(Width),      # Largeur moyenne dans la classe
+    prop_obs = mean(y),           # Proportion empirique de Y = 1
+    n = n(),                      # Effectif du groupe (pour ajuster la taille des points)
+    .groups = "drop"
+  )
+
+
+# 3. Prédiction des probabilités à partir du modèle additif (mod_mult)
+# Note : Si vous n'avez pas encore chargé les données, on peut utiliser les coefficients exacts du cours :
+# Intercept = -12.7151, c1 = 1.3299, c2 = 1.4023, c3 = 1.1061 (référence = Sombre), width = 0.4680
+grille_pred$prob <- predict(mod_mult, newdata = grille_pred, type = "response")
+
+# 4. Tracé du graphique
+ggplot(grille_pred, aes(x = Width, y = prob, color = Color_f)) +
+  geom_line(linewidth = 1.2) +
+  # Ajout d'une ligne horizontale à p = 0.5 pour visualiser le décalage horizontal
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "gray50") +
+  # Points représentant les moyennes empiriques (taille proportionnelle à l'effectif n)
+  geom_point(data = donnees_emp, aes(x = width_moy, y = prop_obs, color = Color_f, size = n), alpha = 0.85) +
+  
+  scale_color_manual(values = c("#E69F00", "#56B4E9", "#009E73", "#000000")) +
+  labs(
+    title = "Probabilité prédite d'avoir au moins un satellite selon la largeur et la couleur",
+    subtitle = "Modèle logistique additif (sans interaction) : illustration du parallélisme",
+    x = "Largeur de la carapace (cm)",
+    y = "Probabilité prédite P(Y = 1)",
+    color = "Couleur de la carapace"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+
+```
+Le modèle suppose l'absence d'interaction entre la couleur et la largeur. Géométriquement, cela signifie que les courbes de probabilité en fonction de la largeur pour chaque couleur sont strictement parallèles (décalées horizontalement ou verticalement selon les log-odds) et ne se croisent jamais. Les crabes plus sombres (catégorie de référence 4) ont systématiquement une probabilité plus faible d'avoir des satellites à largeur égale.
+
+
